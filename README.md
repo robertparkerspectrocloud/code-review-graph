@@ -24,6 +24,15 @@
   <a href="https://discord.gg/3p58KXqGFN"><img src="https://img.shields.io/badge/discord-join-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Discord"></a>
 </p>
 
+<p align="center">
+  <a href="docs/USAGE.md">Usage</a> ·
+  <a href="docs/COMMANDS.md">Commands</a> ·
+  <a href="docs/FAQ.md">FAQ</a> ·
+  <a href="docs/TROUBLESHOOTING.md">Troubleshooting</a> ·
+  <a href="docs/REPRODUCING.md">Reproducing the benchmarks</a> ·
+  <a href="docs/ROADMAP.md">Roadmap</a>
+</p>
+
 <br>
 
 AI coding tools can end up re-reading large parts of your codebase on review tasks. `code-review-graph` fixes that. It builds a structural map of your code with [Tree-sitter](https://tree-sitter.github.io/tree-sitter/), tracks changes incrementally, and gives your AI assistant precise context via [MCP](https://modelcontextprotocol.io/) so it reads only what matters.
@@ -518,6 +527,18 @@ all tools are available. This is especially useful for MCP client configurations
 </details>
 
 ---
+
+## FAQ & how it compares
+
+Short, honest answers in [docs/FAQ.md](docs/FAQ.md):
+
+- [vs LSP / language servers](docs/FAQ.md#how-is-this-different-from-lsp-and-language-servers) — one persistent cross-language graph instead of per-language daemons; LSP stays more precise per symbol.
+- [vs RAG / embeddings](docs/FAQ.md#isnt-this-just-rag) — structural edges parsed from the AST, not similarity chunks; embeddings are optional and only assist search.
+- [vs grep / agentic search](docs/FAQ.md#why-not-just-grep) — grep wins on one-hop lookups; the graph wins on multi-hop questions (impact radius, callers-of-callers, tests-for, affected flows).
+- [vs Serena, codegraph, claude-context, repomix](docs/FAQ.md#how-does-it-compare-to-serena-codegraph-claude-context-and-repomix) — factual comparison table.
+- [When NOT to use it](docs/FAQ.md#when-should-i-not-use-it) — small repos, trivial single-file diffs, one-off questions.
+- [Does it phone home?](docs/FAQ.md#does-it-phone-home) — no; zero telemetry, cloud embeddings are opt-in.
+- [How do I verify it is working?](docs/FAQ.md#how-do-i-verify-it-is-working) — `status`, `detect-changes --brief`, `/mcp`.
 
 ## Troubleshooting
 
