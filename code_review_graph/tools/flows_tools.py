@@ -7,7 +7,7 @@ from typing import Any
 
 from ..flows import get_flow_by_id, get_flows
 from ..hints import generate_hints, get_session
-from ._common import _get_store
+from ._common import _get_store_for_read, _not_built_response
 
 # ---------------------------------------------------------------------------
 # Tool 10: list_flows  [EXPLORE]
@@ -40,7 +40,9 @@ def list_flows(
     Returns:
         List of flows with criticality scores.
     """
-    store, root = _get_store(repo_root)
+    store, root, not_built = _get_store_for_read(repo_root)
+    if store is None or root is None:
+        return not_built if not_built is not None else _not_built_response()
     try:
         fetch_limit = (
             limit if not kind else limit * 10
@@ -109,7 +111,9 @@ def get_flow(
     Returns:
         Flow details with steps, or not_found status.
     """
-    store, root = _get_store(repo_root)
+    store, root, not_built = _get_store_for_read(repo_root)
+    if store is None or root is None:
+        return not_built if not_built is not None else _not_built_response()
     try:
         flow: dict | None = None
 

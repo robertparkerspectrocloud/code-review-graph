@@ -12,7 +12,7 @@ from ..flows import get_affected_flows as _get_affected_flows
 from ..graph import edge_to_dict, node_to_dict
 from ..hints import generate_hints, get_session
 from ..incremental import get_changed_files, get_staged_and_unstaged
-from ._common import _get_store, _resolve_graph_file_paths
+from ._common import _get_store_for_read, _not_built_response, _resolve_graph_file_paths
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,9 @@ def get_review_context(
         Structured review context with subgraph, source snippets, and
         review guidance.
     """
-    store, root = _get_store(repo_root)
+    store, root, not_built = _get_store_for_read(repo_root)
+    if store is None or root is None:
+        return not_built if not_built is not None else _not_built_response()
     try:
         # Get impact radius first
         if changed_files is None:
@@ -308,7 +310,9 @@ def get_affected_flows_func(
     Returns:
         Affected flows sorted by criticality, with step details.
     """
-    store, root = _get_store(repo_root)
+    store, root, not_built = _get_store_for_read(repo_root)
+    if store is None or root is None:
+        return not_built if not_built is not None else _not_built_response()
     try:
         if changed_files is None:
             changed_files = get_changed_files(root, base)
@@ -384,7 +388,9 @@ def detect_changes_func(
         Risk-scored analysis with changed functions, affected flows,
         test gaps, and review priorities.
     """
-    store, root = _get_store(repo_root)
+    store, root, not_built = _get_store_for_read(repo_root)
+    if store is None or root is None:
+        return not_built if not_built is not None else _not_built_response()
     try:
         # Detect changed files if not provided.
         if changed_files is None:

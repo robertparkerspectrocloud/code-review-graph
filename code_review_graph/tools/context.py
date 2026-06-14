@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from ._common import _get_store, compact_response
+from ._common import _get_store_for_read, _not_built_response, compact_response
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,9 @@ def get_minimal_context(
         repo_root: Repository root path. Auto-detected if None.
         base: Git ref for diff comparison.
     """
-    store, root = _get_store(repo_root)
+    store, root, not_built = _get_store_for_read(repo_root)
+    if store is None or root is None:
+        return not_built if not_built is not None else _not_built_response()
     try:
         # 1. Quick stats
         stats = store.get_stats()

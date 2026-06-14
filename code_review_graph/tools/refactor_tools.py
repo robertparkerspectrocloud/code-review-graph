@@ -13,7 +13,7 @@ from ..refactor import (
     rename_preview,
     suggest_refactorings,
 )
-from ._common import _get_store, _validate_repo_root
+from ._common import _get_store_for_read, _not_built_response, _validate_repo_root
 
 # ---------------------------------------------------------------------------
 # Tool 17: refactor_tool  [REFACTOR]
@@ -57,7 +57,9 @@ def refactor_func(
             ),
         }
 
-    store, root = _get_store(repo_root)
+    store, root, not_built = _get_store_for_read(repo_root)
+    if store is None or root is None:
+        return not_built if not_built is not None else _not_built_response()
     try:
         if mode == "rename":
             if not old_name or not new_name:

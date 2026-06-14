@@ -506,8 +506,8 @@ class TestAnalysisToolsCloseStore:
     ):
         store = MagicMock()
         monkeypatch.setattr(
-            analysis_module, "_get_store",
-            lambda repo_root=None: (store, tmp_path),
+            analysis_module, "_get_store_for_read",
+            lambda repo_root=None: (store, tmp_path, None),
         )
         monkeypatch.setattr(
             analysis_module, analysis_name, lambda *a, **k: ret,
@@ -524,8 +524,8 @@ class TestAnalysisToolsCloseStore:
     ):
         store = MagicMock()
         monkeypatch.setattr(
-            analysis_module, "_get_store",
-            lambda repo_root=None: (store, tmp_path),
+            analysis_module, "_get_store_for_read",
+            lambda repo_root=None: (store, tmp_path, None),
         )
 
         def boom(*args, **kwargs):

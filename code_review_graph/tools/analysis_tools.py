@@ -11,7 +11,7 @@ from ..analysis import (
     find_surprising_connections,
     generate_suggested_questions,
 )
-from ._common import _get_store
+from ._common import _get_store_for_read, _not_built_response
 
 
 def get_hub_nodes_func(
@@ -28,7 +28,9 @@ def get_hub_nodes_func(
         repo_root: Repository root (auto-detected if omitted).
         top_n: Number of top hubs to return (default 10).
     """
-    store, _root = _get_store(repo_root or None)
+    store, _root, not_built = _get_store_for_read(repo_root or None)
+    if store is None:
+        return not_built if not_built is not None else _not_built_response()
     try:
         hubs = find_hub_nodes(store, top_n=top_n)
         return {
@@ -58,7 +60,9 @@ def get_bridge_nodes_func(
         repo_root: Repository root (auto-detected if omitted).
         top_n: Number of top bridges to return (default 10).
     """
-    store, _root = _get_store(repo_root or None)
+    store, _root, not_built = _get_store_for_read(repo_root or None)
+    if store is None:
+        return not_built if not_built is not None else _not_built_response()
     try:
         bridges = find_bridge_nodes(store, top_n=top_n)
         return {
@@ -86,7 +90,9 @@ def get_knowledge_gaps_func(
     Args:
         repo_root: Repository root (auto-detected if omitted).
     """
-    store, _root = _get_store(repo_root or None)
+    store, _root, not_built = _get_store_for_read(repo_root or None)
+    if store is None:
+        return not_built if not_built is not None else _not_built_response()
     try:
         gaps = find_knowledge_gaps(store)
         total = sum(len(v) for v in gaps.values())
@@ -128,7 +134,9 @@ def get_surprising_connections_func(
         repo_root: Repository root (auto-detected if omitted).
         top_n: Number of top surprises to return (default 15).
     """
-    store, _root = _get_store(repo_root or None)
+    store, _root, not_built = _get_store_for_read(repo_root or None)
+    if store is None:
+        return not_built if not_built is not None else _not_built_response()
     try:
         surprises = find_surprising_connections(
             store, top_n=top_n
@@ -158,7 +166,9 @@ def get_suggested_questions_func(
     Args:
         repo_root: Repository root (auto-detected if omitted).
     """
-    store, _root = _get_store(repo_root or None)
+    store, _root, not_built = _get_store_for_read(repo_root or None)
+    if store is None:
+        return not_built if not_built is not None else _not_built_response()
     try:
         questions = generate_suggested_questions(store)
         by_priority: dict[str, list[dict[str, Any]]] = {

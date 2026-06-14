@@ -9,7 +9,7 @@ from ..communities import get_architecture_overview, get_communities
 from ..context_savings import attach_context_savings
 from ..graph import node_to_dict
 from ..hints import generate_hints, get_session
-from ._common import _get_store
+from ._common import _get_store_for_read, _not_built_response
 
 # ---------------------------------------------------------------------------
 # Tool 13: list_communities  [EXPLORE]
@@ -40,7 +40,9 @@ def list_communities_func(
     Returns:
         List of communities with size and cohesion scores.
     """
-    store, root = _get_store(repo_root)
+    store, root, not_built = _get_store_for_read(repo_root)
+    if store is None or root is None:
+        return not_built if not_built is not None else _not_built_response()
     try:
         communities = get_communities(
             store, sort_by=sort_by, min_size=min_size
@@ -91,7 +93,9 @@ def get_community_func(
     Returns:
         Community details, or not_found status.
     """
-    store, root = _get_store(repo_root)
+    store, root, not_built = _get_store_for_read(repo_root)
+    if store is None or root is None:
+        return not_built if not_built is not None else _not_built_response()
     try:
         community: dict | None = None
         all_communities = get_communities(store)
@@ -211,7 +215,9 @@ def get_architecture_overview_func(
         Architecture overview with communities, cross-community edges,
         and warnings.
     """
-    store, root = _get_store(repo_root)
+    store, root, not_built = _get_store_for_read(repo_root)
+    if store is None or root is None:
+        return not_built if not_built is not None else _not_built_response()
     try:
         full_overview = get_architecture_overview(store)
         overview = full_overview
