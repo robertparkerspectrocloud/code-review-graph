@@ -18,13 +18,35 @@ from code_review_graph import main as crg_main
 
 @pytest.fixture(autouse=True)
 def _isolate_crg_tools_env(monkeypatch):
-    """Always strip CRG_TOOLS so that any test invoking ``crg_main.main``
-    does not accidentally permanently shrink the global tool registry
-    when the suite runs under a developer environment that exports
+    """Always strip CRG_TOOLS / CRG_DETAIL_LEVEL so that any test invoking
+    ``crg_main.main`` does not accidentally permanently shrink the global tool
+    registry when the suite runs under a developer environment that exports
     ``CRG_TOOLS``.  Without this the snapshot/restore in
     ``TestApplyToolFilter._restore_tools`` only sees the already-filtered
     set and cannot restore the dropped tools."""
     monkeypatch.delenv("CRG_TOOLS", raising=False)
+    monkeypatch.delenv("CRG_DETAIL_LEVEL", raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _restore_tool_registry():
+    """Snapshot the full tool registry before each test and restore after.
+
+    ``main()`` now trims to the lean set by default (and ``_apply_tool_filter``
+    removes tools permanently via ``remove_tool``), so any test that starts the
+    server would otherwise leave the global registry shrunk for every later
+    test.  Re-register anything that was dropped, and reset the detail-level
+    override."""
+    import asyncio
+
+    original = asyncio.run(crg_main.mcp.list_tools())
+    saved_override = crg_main._detail_level_override
+    yield
+    crg_main._detail_level_override = saved_override
+    current_names = {t.name for t in asyncio.run(crg_main.mcp.list_tools())}
+    for tool in original:
+        if tool.name not in current_names:
+            crg_main.mcp.add_tool(tool)
 
 
 class TestResolveRepoRoot:
@@ -282,12 +304,37 @@ class TestApplyToolFilter:
         return {t.name for t in await crg_main.mcp.list_tools()}
 
     @pytest.mark.asyncio
-    async def test_no_filter_keeps_all_tools(self):
-        """When neither --tools nor CRG_TOOLS is set, all tools remain."""
+    async def test_default_is_lean_set(self):
+        """With nothing specified, the server trims to the curated lean set."""
         before = await self._tool_names()
+        assert before == set(await self._tool_names())  # sanity
         crg_main._apply_tool_filter(None)
         after = await self._tool_names()
-        assert before == after
+        assert after == set(crg_main.LEAN_TOOLS)
+        # Lean is strictly a subset and never larger than the full registry.
+        assert after < before
+        assert len(crg_main.LEAN_TOOLS) == 7
+
+    @pytest.mark.asyncio
+    async def test_all_keyword_restores_full_set(self):
+        """``--tools all`` (or CRG_TOOLS=all) keeps every registered tool."""
+        before = await self._tool_names()
+        assert len(before) == 30
+        crg_main._apply_tool_filter("all")
+        after = await self._tool_names()
+        assert after == before
+        assert len(after) == 30
+
+    @pytest.mark.asyncio
+    async def test_all_keyword_case_insensitive(self):
+        before = await self._tool_names()
+        crg_main._apply_tool_filter("ALL")
+        assert await self._tool_names() == before
+
+    @pytest.mark.asyncio
+    async def test_lean_keyword_uses_curated_set(self):
+        crg_main._apply_tool_filter("lean")
+        assert await self._tool_names() == set(crg_main.LEAN_TOOLS)
 
     @pytest.mark.asyncio
     async def test_filter_via_argument(self):
@@ -306,6 +353,13 @@ class TestApplyToolFilter:
         assert remaining == {"query_graph_tool"}
 
     @pytest.mark.asyncio
+    async def test_env_var_all_restores_full_set(self, monkeypatch):
+        before = await self._tool_names()
+        monkeypatch.setenv("CRG_TOOLS", "all")
+        crg_main._apply_tool_filter(None)
+        assert await self._tool_names() == before
+
+    @pytest.mark.asyncio
     async def test_argument_takes_precedence_over_env(self, monkeypatch):
         """CLI --tools wins over CRG_TOOLS env var."""
         monkeypatch.setenv("CRG_TOOLS", "list_repos_tool")
@@ -314,8 +368,27 @@ class TestApplyToolFilter:
         assert remaining == {"query_graph_tool"}
 
     @pytest.mark.asyncio
-    async def test_empty_string_is_noop(self):
-        """An empty string should not remove all tools."""
+    async def test_unknown_names_ignored_gracefully(self):
+        """Unknown tool names don't error; only the valid ones survive."""
+        crg_main._apply_tool_filter(
+            "query_graph_tool,this_tool_does_not_exist,another_bogus_tool"
+        )
+        remaining = await self._tool_names()
+        assert remaining == {"query_graph_tool"}
+
+    @pytest.mark.asyncio
+    async def test_all_unknown_names_removes_everything(self):
+        """A spec of only-unknown names is honoured (removes all real tools).
+
+        This is intentional: the names were explicit, just wrong. It is the
+        caller's responsibility to pass real names; we never *expand* output.
+        """
+        crg_main._apply_tool_filter("nonexistent_a,nonexistent_b")
+        assert await self._tool_names() == set()
+
+    @pytest.mark.asyncio
+    async def test_empty_string_keeps_all(self):
+        """An explicit empty string should not remove all tools."""
         before = await self._tool_names()
         crg_main._apply_tool_filter("")
         after = await self._tool_names()
@@ -327,3 +400,121 @@ class TestApplyToolFilter:
         crg_main._apply_tool_filter(" query_graph_tool , semantic_search_nodes_tool ")
         remaining = await self._tool_names()
         assert remaining == {"query_graph_tool", "semantic_search_nodes_tool"}
+
+    def test_stderr_notice_printed_when_trimming(self, capsys):
+        """Trimming to lean prints a one-line stderr notice; stdout stays clean."""
+        crg_main._apply_tool_filter("query_graph_tool")
+        captured = capsys.readouterr()
+        assert captured.out == ""  # stdout must stay clean for JSON-RPC
+        assert "lean tool mode" in captured.err
+        assert "--tools all" in captured.err
+
+    def test_no_stderr_notice_when_keeping_all(self, capsys):
+        """``all`` keeps everything and prints nothing."""
+        crg_main._apply_tool_filter("all")
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err == ""
+
+    def test_lean_tools_are_all_registered(self):
+        """Every name in LEAN_TOOLS must be a real registered tool."""
+        import asyncio
+
+        registered = {t.name for t in asyncio.run(crg_main.mcp.list_tools())}
+        for name in crg_main.LEAN_TOOLS:
+            assert name in registered, f"LEAN_TOOLS lists unknown tool {name!r}"
+
+
+class TestResolveDetailLevel:
+    """Server-wide detail-level override (``CRG_DETAIL_LEVEL`` / --detail)."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_override(self, monkeypatch):
+        original = crg_main._detail_level_override
+        monkeypatch.delenv("CRG_DETAIL_LEVEL", raising=False)
+        crg_main._detail_level_override = None
+        yield
+        crg_main._detail_level_override = original
+
+    def test_no_override_returns_argument(self):
+        assert crg_main._resolve_detail_level("standard") == "standard"
+        assert crg_main._resolve_detail_level("minimal") == "minimal"
+
+    def test_module_override_wins(self):
+        crg_main._detail_level_override = "minimal"
+        assert crg_main._resolve_detail_level("standard") == "minimal"
+
+    def test_env_override_wins(self, monkeypatch):
+        monkeypatch.setenv("CRG_DETAIL_LEVEL", "standard")
+        assert crg_main._resolve_detail_level("minimal") == "standard"
+
+    def test_module_override_beats_env(self, monkeypatch):
+        monkeypatch.setenv("CRG_DETAIL_LEVEL", "standard")
+        crg_main._detail_level_override = "minimal"
+        assert crg_main._resolve_detail_level("standard") == "minimal"
+
+    def test_unknown_override_ignored(self, monkeypatch):
+        """An invalid override never silently expands output."""
+        monkeypatch.setenv("CRG_DETAIL_LEVEL", "bogus")
+        assert crg_main._resolve_detail_level("minimal") == "minimal"
+
+    def test_override_is_case_insensitive(self, monkeypatch):
+        monkeypatch.setenv("CRG_DETAIL_LEVEL", "  MINIMAL  ")
+        assert crg_main._resolve_detail_level("standard") == "minimal"
+
+
+class TestMcpWrapperDefaults:
+    """The MCP tool wrappers default to ``minimal`` so the token moat holds."""
+
+    @staticmethod
+    def _wrapper(name):
+        fn = getattr(crg_main, name)
+        return getattr(fn, "fn", None) or fn
+
+    def test_query_graph_tool_defaults_minimal(self):
+        sig = inspect.signature(self._wrapper("query_graph_tool"))
+        assert sig.parameters["detail_level"].default == "minimal"
+
+    def test_semantic_search_defaults_minimal(self):
+        sig = inspect.signature(self._wrapper("semantic_search_nodes_tool"))
+        assert sig.parameters["detail_level"].default == "minimal"
+
+    def test_impact_radius_defaults_minimal(self):
+        sig = inspect.signature(self._wrapper("get_impact_radius_tool"))
+        assert sig.parameters["detail_level"].default == "minimal"
+
+    def test_detect_changes_defaults_minimal(self):
+        sig = inspect.signature(self._wrapper("detect_changes_tool"))
+        assert sig.parameters["detail_level"].default == "minimal"
+
+    def test_query_graph_tool_has_max_results_cap(self):
+        sig = inspect.signature(self._wrapper("query_graph_tool"))
+        assert "max_results" in sig.parameters
+        assert sig.parameters["max_results"].default == 100
+
+    def test_review_tools_have_max_tokens(self):
+        for name in ("get_review_context_tool", "detect_changes_tool"):
+            sig = inspect.signature(self._wrapper(name))
+            assert "max_tokens" in sig.parameters
+            assert sig.parameters["max_tokens"].default == 6000
+
+
+class TestServeDetailFlag:
+    """``serve --detail`` sets the module-level override before the loop."""
+
+    @pytest.fixture(autouse=True)
+    def _reset(self):
+        original = crg_main._detail_level_override
+        yield
+        crg_main._detail_level_override = original
+
+    def test_detail_flag_sets_override(self, monkeypatch):
+        monkeypatch.setattr(crg_main.mcp, "run", lambda **kw: None)
+        crg_main.main(repo_root=None, detail_level="minimal")
+        assert crg_main._detail_level_override == "minimal"
+
+    def test_invalid_detail_flag_ignored(self, monkeypatch):
+        monkeypatch.setattr(crg_main.mcp, "run", lambda **kw: None)
+        crg_main._detail_level_override = None
+        crg_main.main(repo_root=None, detail_level="loud")
+        assert crg_main._detail_level_override is None

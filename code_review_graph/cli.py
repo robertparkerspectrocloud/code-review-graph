@@ -657,11 +657,21 @@ def main() -> None:
     )
     serve_cmd.add_argument(
         "--tools", default=None,
+        metavar="all|lean|<csv>",
         help=(
-            "Comma-separated list of tool names to expose "
-            "(e.g. query_graph_tool,semantic_search_nodes_tool). "
-            "Unlisted tools are removed. Falls back to CRG_TOOLS env var. "
-            "When unset, all tools are available."
+            "Which MCP tools to expose. 'all' = every tool (~30), 'lean' = the "
+            "curated low-token set (default), or a comma-separated list "
+            "(e.g. query_graph_tool,semantic_search_nodes_tool). Unlisted tools "
+            "are removed. Falls back to CRG_TOOLS env var, then 'lean'."
+        ),
+    )
+    serve_cmd.add_argument(
+        "--detail", default=None,
+        choices=["minimal", "standard", "verbose"],
+        help=(
+            "Server-wide detail_level override for all tools. Forces every "
+            "tool's response to this verbosity, overriding per-call defaults. "
+            "Falls back to the CRG_DETAIL_LEVEL env var."
         ),
     )
     serve_cmd.add_argument(
@@ -795,9 +805,13 @@ def main() -> None:
                     host=host,
                     port=port,
                     tools=args.tools,
+                    detail_level=args.detail,
                 )
             else:
-                serve_main(repo_root=args.repo, auto_watch=auto_watch, tools=args.tools)
+                serve_main(
+                    repo_root=args.repo, auto_watch=auto_watch,
+                    tools=args.tools, detail_level=args.detail,
+                )
         else:
             serve_main(repo_root=args.repo, auto_watch=auto_watch)
         return

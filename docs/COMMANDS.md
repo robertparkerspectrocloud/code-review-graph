@@ -56,7 +56,7 @@ changed_files: list[str] | None  # Auto-detected from VCS
 max_depth: int = 2               # Hops in graph
 repo_root: str | None
 base: str = "HEAD~1"
-detail_level: str = "standard"   # "standard" or "minimal"
+detail_level: str = "minimal"    # "minimal" (default) or "standard"
 ```
 Relevant responses may include compact estimated `context_savings` metadata.
 
@@ -66,7 +66,8 @@ pattern: str    # callers_of, callees_of, imports_of, importers_of,
                 # children_of, tests_for, inheritors_of, file_summary
 target: str     # Node name, qualified name, or file path
 repo_root: str | None
-detail_level: str = "standard"   # "standard" or "minimal"
+detail_level: str = "minimal"    # "minimal" (default) or "standard"
+max_results: int = 100           # Cap so a hot symbol can't return unbounded results
 ```
 
 #### `get_review_context_tool`
@@ -78,6 +79,7 @@ max_lines_per_file: int = 200
 repo_root: str | None
 base: str = "HEAD~1"
 detail_level: str = "standard"   # "standard" or "minimal"
+max_tokens: int = 6000           # Token budget; drops lowest-risk snippets, reports omissions
 ```
 Relevant responses may include compact estimated `context_savings` metadata.
 
@@ -98,7 +100,7 @@ limit: int = 20
 repo_root: str | None
 model: str | None    # Embedding model (falls back to CRG_EMBEDDING_MODEL env var)
 provider: str | None # local, openai, google, minimax
-detail_level: str = "standard"
+detail_level: str = "minimal"    # "minimal" (default) or "standard"
 ```
 
 #### `embed_graph_tool`
@@ -218,7 +220,8 @@ changed_files: list[str] | None
 include_source: bool = False
 max_depth: int = 2
 repo_root: str | None
-detail_level: str = "standard"
+detail_level: str = "minimal"    # "minimal" (default) or "standard"
+max_tokens: int = 6000           # Token budget; drops lowest-risk items, reports omissions
 ```
 Primary tool for code review. Maps changed files to affected functions, flows, communities, and test coverage gaps. Returns risk scores and prioritized review items.
 Relevant responses may include compact estimated `context_savings` metadata.
@@ -356,9 +359,11 @@ code-review-graph daemon remove <path_or_alias>     # Remove a repo from daemon 
 code-review-graph eval                         # Run evaluation benchmarks
 
 # Server
-code-review-graph serve                        # Start MCP server (stdio)
+code-review-graph serve                        # Start MCP server (stdio); lean 7-tool set by default
 code-review-graph serve --http                 # Streamable HTTP on localhost:5555
-code-review-graph serve --tools query_graph_tool,detect_changes_tool  # Tool allowlist
+code-review-graph serve --tools all            # Expose all 30 tools
+code-review-graph serve --tools query_graph_tool,detect_changes_tool  # Custom allowlist
+code-review-graph serve --detail minimal       # Force minimal detail_level server-wide
 code-review-graph mcp                          # Alias for serve
 ```
 

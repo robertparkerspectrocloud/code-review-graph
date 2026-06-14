@@ -543,22 +543,39 @@ The cloud-egress warning is auto-skipped when the base URL points to localhost
 > much narrower quality gap against smaller models at this input length.
 > Body/docstring embedding is tracked as a follow-up enhancement.
 
-#### Tool Filtering
+#### Tool Filtering (lean by default)
 
-CRG exposes 30 MCP tools by default. In token-constrained environments, you can
-limit the server to a subset of tools using `--tools` or the `CRG_TOOLS`
-environment variable:
+CRG registers 30 MCP tools, but loading every description costs ~8k tokens
+per LLM turn before any work happens. To protect that budget the server ships
+a **curated lean set of 7 tools by default**:
+
+`get_minimal_context_tool`, `query_graph_tool`, `semantic_search_nodes_tool`,
+`detect_changes_tool`, `get_review_context_tool`, `get_impact_radius_tool`,
+`get_affected_flows_tool`.
+
+These cover every documented workflow (explore, review, impact, flows). When
+the server trims tools it prints a one-line notice to **stderr** so a reduced
+list is never silent.
+
+Restore the full set, pick the curated set explicitly, or pass a custom list
+via `--tools` or the `CRG_TOOLS` environment variable:
 
 ```bash
-# Via CLI flag
-code-review-graph serve --tools query_graph_tool,semantic_search_nodes_tool,detect_changes_tool
+# All 30 tools
+code-review-graph serve --tools all
+CRG_TOOLS=all code-review-graph serve
 
-# Via environment variable
+# The curated lean set (the default), spelled out
+code-review-graph serve --tools lean
+
+# A custom subset
+code-review-graph serve --tools query_graph_tool,semantic_search_nodes_tool,detect_changes_tool
 CRG_TOOLS=query_graph_tool,semantic_search_nodes_tool code-review-graph serve
 ```
 
-The CLI flag takes precedence over the environment variable. When neither is set,
-all tools are available. This is especially useful for MCP client configurations:
+The CLI flag takes precedence over the environment variable, which takes
+precedence over the lean default. Unknown tool names are ignored gracefully.
+This is especially useful for MCP client configurations:
 
 ```json
 {
@@ -570,6 +587,10 @@ all tools are available. This is especially useful for MCP client configurations
   }
 }
 ```
+
+You can also force a server-wide response verbosity with `--detail`
+(`minimal`/`standard`/`verbose`) or the `CRG_DETAIL_LEVEL` env var; it
+overrides each tool's per-call `detail_level`.
 
 </details>
 

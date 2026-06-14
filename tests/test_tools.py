@@ -11,7 +11,9 @@ import code_review_graph.tools.analysis_tools as analysis_module
 import code_review_graph.tools.docs as docs_module
 from code_review_graph.graph import GraphStore, _sanitize_name, node_to_dict
 from code_review_graph.parser import EdgeInfo, NodeInfo
+from code_review_graph.context_savings import estimate_tokens
 from code_review_graph.tools import (
+    detect_changes_func,
     get_affected_flows_func,
     get_architecture_overview_func,
     get_community_func,
@@ -1563,3 +1565,256 @@ class TestGetMinimalContext:
             task="refactor auth module", repo_root=str(self.root),
         )
         assert "refactor" in result["next_tool_suggestions"]
+
+
+def _seed_large_review_repo(repo: Path, n_files: int = 12, lines: int = 400) -> list[str]:
+    """Build a repo + graph with many large changed files, returning rel paths."""
+    (repo / ".git").mkdir(parents=True, exist_ok=True)
+    src = repo / "src"
+    src.mkdir(parents=True, exist_ok=True)
+    graph_dir = repo / ".code-review-graph"
+    graph_dir.mkdir(exist_ok=True)
+    store = GraphStore(graph_dir / "graph.db")
+    rel_paths: list[str] = []
+    try:
+        for i in range(n_files):
+            rel = f"src/mod_{i:02d}.py"
+            rel_paths.append(rel)
+            full = repo / rel
+            # Big file -> _extract_relevant_lines kicks in, but each changed
+            # function still contributes a sizable snippet.
+            body = "\n".join(
+                f"    x{j} = compute_{i}_{j}()  # {'pad ' * 8}"
+                for j in range(lines)
+            )
+            full.write_text(f"def handle_{i}():\n{body}\n", encoding="utf-8")
+            abs_path = str(full)
+            store.upsert_node(NodeInfo(
+                kind="File", name=abs_path, file_path=abs_path,
+                line_start=1, line_end=lines + 1, language="python",
+            ))
+            store.upsert_node(NodeInfo(
+                kind="Function", name=f"handle_{i}", file_path=abs_path,
+                line_start=1, line_end=lines + 1, language="python",
+            ))
+        store.commit()
+    finally:
+        store.close()
+    return rel_paths
+
+
+class TestReviewTokenBudget:
+    """get_review_context must honour a token budget (no 85k-400k blowups)."""
+
+    def test_large_review_is_capped_and_reports_omissions(self, tmp_path):
+        repo = tmp_path / "bigrepo"
+        # Few files (small scaffold) but big snippets (the budget pressure).
+        rel_paths = _seed_large_review_repo(repo, n_files=10, lines=600)
+
+        # First measure the unbudgeted size so the budget is provably tight.
+        full = get_review_context(
+            changed_files=rel_paths, repo_root=str(repo),
+            include_source=True, max_tokens=0,
+        )
+        full_tokens = estimate_tokens(full)
+        # Budget to roughly half: forces a partial drop without dropping all.
+        budget = full_tokens // 2
+        assert budget > 0
+
+        result = get_review_context(
+            changed_files=rel_paths,
+            repo_root=str(repo),
+            include_source=True,
+            max_tokens=budget,
+        )
+
+        assert result["status"] == "ok"
+        # The response must fit the budget (with a small slack for the note
+        # and the omitted metadata appended after budgeting).
+        assert estimate_tokens(result) <= budget * 1.15
+        # The budgeted response is strictly smaller than the unbudgeted one.
+        assert estimate_tokens(result) < full_tokens
+        # Omissions are reported honestly.
+        assert "omitted" in result
+        omitted = result["omitted"]
+        assert omitted["source_files"] >= 1
+        assert "Token budget" in omitted["note"]
+        # Some snippets survived; not all were dropped.
+        kept = result["context"]["source_snippets"]
+        assert 0 < len(kept) < len(rel_paths)
+
+    def test_unbudgeted_review_keeps_every_snippet(self, tmp_path):
+        repo = tmp_path / "bigrepo2"
+        rel_paths = _seed_large_review_repo(repo, n_files=6, lines=200)
+
+        result = get_review_context(
+            changed_files=rel_paths,
+            repo_root=str(repo),
+            include_source=True,
+            max_tokens=0,  # disabled
+        )
+        assert "omitted" not in result
+        assert len(result["context"]["source_snippets"]) == len(rel_paths)
+
+    def test_generous_budget_omits_nothing(self, tmp_path):
+        repo = tmp_path / "bigrepo3"
+        rel_paths = _seed_large_review_repo(repo, n_files=3, lines=20)
+
+        result = get_review_context(
+            changed_files=rel_paths,
+            repo_root=str(repo),
+            include_source=True,
+            max_tokens=1_000_000,
+        )
+        assert "omitted" not in result
+        assert len(result["context"]["source_snippets"]) == len(rel_paths)
+
+    def test_budget_never_drops_structural_context(self, tmp_path):
+        repo = tmp_path / "bigrepo4"
+        rel_paths = _seed_large_review_repo(repo, n_files=10, lines=300)
+
+        result = get_review_context(
+            changed_files=rel_paths,
+            repo_root=str(repo),
+            include_source=True,
+            max_tokens=4000,
+        )
+        # Subgraph + guidance always survive — only snippets are budgeted.
+        ctx = result["context"]
+        assert "graph" in ctx
+        assert "review_guidance" in ctx
+
+
+class TestDetectChangesTokenBudget:
+    """detect_changes_func can balloon too — guard it with max_tokens."""
+
+    def _seed(self, repo: Path, n: int = 60) -> None:
+        (repo / ".git").mkdir(parents=True, exist_ok=True)
+        graph_dir = repo / ".code-review-graph"
+        graph_dir.mkdir(parents=True, exist_ok=True)
+        store = GraphStore(graph_dir / "graph.db")
+        abs_file = str(repo / "src" / "big.py")
+        (repo / "src").mkdir(parents=True, exist_ok=True)
+        (repo / "src" / "big.py").write_text("# big\n", encoding="utf-8")
+        try:
+            store.upsert_node(NodeInfo(
+                kind="File", name=abs_file, file_path=abs_file,
+                line_start=1, line_end=2, language="python",
+            ))
+            for i in range(n):
+                store.upsert_node(NodeInfo(
+                    kind="Function",
+                    name=f"func_{i}_{'x' * 40}",
+                    file_path=abs_file,
+                    line_start=i + 1, line_end=i + 2, language="python",
+                ))
+            store.commit()
+        finally:
+            store.close()
+
+    def test_large_detect_changes_is_capped(self, tmp_path):
+        repo = tmp_path / "dc"
+        self._seed(repo, n=80)
+        abs_file = str(repo / "src" / "big.py")
+
+        budget = 3000
+        result = detect_changes_func(
+            changed_files=[abs_file],
+            repo_root=str(repo),
+            detail_level="standard",
+            max_tokens=budget,
+        )
+        assert result["status"] == "ok"
+        assert estimate_tokens(result) <= budget * 1.15
+        assert "omitted" in result
+        assert result["omitted"]["changed_functions"] >= 1
+        assert "Token budget" in result["omitted"]["note"]
+        # Highest-signal guidance preserved.
+        assert "review_priorities" in result
+
+    def test_detect_changes_unbudgeted_keeps_all(self, tmp_path):
+        repo = tmp_path / "dc2"
+        self._seed(repo, n=80)
+        abs_file = str(repo / "src" / "big.py")
+
+        result = detect_changes_func(
+            changed_files=[abs_file],
+            repo_root=str(repo),
+            detail_level="standard",
+            max_tokens=0,
+        )
+        assert "omitted" not in result
+        assert len(result["changed_functions"]) == 80
+
+
+class TestQueryGraphMaxResults:
+    """query_graph max_results caps unbounded callers_of/callees_of payloads."""
+
+    def setup_method(self):
+        self.tmp_dir = tempfile.mkdtemp()
+        self.root = Path(self.tmp_dir).resolve()
+        (self.root / ".git").mkdir()
+        (self.root / ".code-review-graph").mkdir()
+        db_path = str(self.root / ".code-review-graph" / "graph.db")
+        target_file = str(self.root / "hot.py")
+        self.hot_qn = f"{target_file}::hot"
+        with GraphStore(db_path) as store:
+            store.upsert_node(NodeInfo(
+                kind="Function", name="hot", file_path=target_file,
+                line_start=1, line_end=2, language="python",
+            ))
+            for i in range(50):
+                caller_file = str(self.root / f"caller_{i}.py")
+                caller_qn = f"{caller_file}::caller_{i}"
+                store.upsert_node(NodeInfo(
+                    kind="Function", name=f"caller_{i}", file_path=caller_file,
+                    line_start=1, line_end=2, language="python",
+                ))
+                store.upsert_edge(EdgeInfo(
+                    kind="CALLS", source=caller_qn,
+                    target=f"{target_file}::hot", file_path=caller_file, line=1,
+                ))
+            store.commit()
+
+    def teardown_method(self):
+        import shutil
+
+        shutil.rmtree(self.tmp_dir, ignore_errors=True)
+
+    def test_cap_enforced(self):
+        result = query_graph(
+            pattern="callers_of", target=self.hot_qn,
+            repo_root=str(self.root), max_results=10,
+        )
+        assert result["status"] == "ok"
+        assert len(result["results"]) == 10
+        assert result["truncated"] is True
+        assert result["total_results"] == 50
+        # Edges are also bounded.
+        assert len(result["edges"]) <= 10
+
+    def test_no_cap_returns_all(self):
+        result = query_graph(
+            pattern="callers_of", target=self.hot_qn,
+            repo_root=str(self.root), max_results=0,
+        )
+        assert len(result["results"]) == 50
+        assert "truncated" not in result
+
+    def test_cap_above_total_is_noop(self):
+        result = query_graph(
+            pattern="callers_of", target=self.hot_qn,
+            repo_root=str(self.root), max_results=1000,
+        )
+        assert len(result["results"]) == 50
+        assert "truncated" not in result
+
+    def test_minimal_detail_reports_total_when_capped(self):
+        result = query_graph(
+            pattern="callers_of", target=self.hot_qn,
+            repo_root=str(self.root), detail_level="minimal", max_results=10,
+        )
+        assert result["result_count"] == 50
+        assert result["truncated"] is True
+        assert result["total_results"] == 50
+        assert len(result["results"]) <= 5  # minimal caps display at 5

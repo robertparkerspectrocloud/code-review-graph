@@ -66,6 +66,7 @@ class TestServeCommand:
             repo_root="repo-root",
             auto_watch=True,
             tools=None,
+            detail_level=None,
         )
 
     def test_mcp_alias_maps_to_serve(self):
