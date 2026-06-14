@@ -374,6 +374,27 @@ they are not quoted before being measured.
 a job-summary table. It is deliberately **report-only**: regressions do not
 fail the default branch yet.
 
+The job summary leads with the **median per-question token reduction** for
+that run — the median of per-question `(1 - graph_tokens / baseline_tokens)
+* 100` over the `agent_baseline` rows (falling back to `token_efficiency`
+when no agent-baseline rows exist). It is computed by
+`code_review_graph.eval.reporter.median_token_reduction`, so you can
+reproduce the exact headline locally:
+
+```bash
+code-review-graph eval --repo httpx,flask \
+  --benchmark agent_baseline --output-dir evaluate/results
+python -c "from code_review_graph.eval.reporter import median_token_reduction_table; \
+print(median_token_reduction_table('evaluate/results'))"
+```
+
+When a run produces no usable rows (clone or measurement failures) the table
+honestly reports `n/a` rather than fabricating a number. The
+`benchmarks: reproducible` badge in the README links to these runs: it
+asserts the pipeline is reproducible, not a frozen headline number — the
+canonical numbers stay in this file and the README, never auto-committed
+from CI.
+
 ## Which benchmark measures what
 
 There are four different "token" benchmarks in the repo. They are all valid

@@ -7,6 +7,7 @@ suitable for inclusion in documentation or CI output.
 from __future__ import annotations
 
 import csv
+import statistics
 from pathlib import Path
 from typing import Any
 
@@ -89,6 +90,103 @@ def _md_table(headers: list[str], rows: list[list[str]]) -> str:
     for row in rows:
         lines.append("| " + " | ".join(row) + " |")
     return "\n".join(lines)
+
+
+def _row_reduction_percent(naive: str, graph: str) -> float | None:
+    """Per-row token reduction = (1 - graph/naive) * 100, or None if unusable."""
+    try:
+        n = float(naive)
+        g = float(graph)
+    except (TypeError, ValueError):
+        return None
+    if n <= 0 or g < 0:
+        return None
+    return (1.0 - g / n) * 100.0
+
+
+def median_token_reduction(results_dir: str | Path) -> dict[str, Any]:
+    """Compute the median per-question token-reduction from a results dir.
+
+    The ``agent_baseline`` benchmark is the genuinely per-question source —
+    each row is one agent question, with ``baseline_tokens`` (grep top-k file
+    content) versus ``graph_tokens`` (graph query cost). The reduction for a
+    row is ``(1 - graph/baseline) * 100``. Rows with ``status != "ok"`` are
+    excluded (they are kept in the CSV for forensics only).
+
+    Falls back to the ``token_efficiency`` benchmark (naive full-file content
+    vs ``get_review_context`` JSON) when no agent-baseline rows are present.
+
+    Returns a dict with ``source``, ``n`` (sample count), ``median_percent``,
+    ``min_percent``, ``max_percent``. ``median_percent`` is ``None`` when no
+    usable rows exist (empty/failed run), so callers can render a clean
+    "no data" cell instead of a misleading number.
+    """
+    results_dir = Path(results_dir)
+
+    # Prefer agent_baseline: it is per-question by construction.
+    source = "agent_baseline"
+    pairs = [
+        (r.get("baseline_tokens", ""), r.get("graph_tokens", ""))
+        for r in _read_csvs(results_dir, "agent_baseline")
+        if (r.get("status", "ok") or "ok") == "ok"
+    ]
+    if not pairs:
+        source = "token_efficiency"
+        pairs = [
+            (r.get("naive_tokens", ""), r.get("graph_tokens", ""))
+            for r in _read_csvs(results_dir, "token_efficiency")
+            if (r.get("status", "ok") or "ok") == "ok"
+        ]
+
+    reductions = [
+        pct
+        for naive, graph in pairs
+        if (pct := _row_reduction_percent(naive, graph)) is not None
+    ]
+
+    if not reductions:
+        return {
+            "source": source,
+            "n": 0,
+            "median_percent": None,
+            "min_percent": None,
+            "max_percent": None,
+        }
+
+    return {
+        "source": source,
+        "n": len(reductions),
+        "median_percent": round(statistics.median(reductions), 1),
+        "min_percent": round(min(reductions), 1),
+        "max_percent": round(max(reductions), 1),
+    }
+
+
+def median_token_reduction_table(results_dir: str | Path) -> str:
+    """Render :func:`median_token_reduction` as a one-row markdown table.
+
+    Designed for the GitHub Actions job summary in ``.github/workflows/eval.yml``.
+    Honest by construction: when a run produced no usable rows the cells read
+    ``n/a`` rather than fabricating a number.
+    """
+    stats = median_token_reduction(results_dir)
+    headers = [
+        "Metric", "Source", "Questions (n)", "Median reduction",
+        "Min", "Max",
+    ]
+
+    def _fmt(value: Any) -> str:
+        return "n/a" if value is None else f"{value}%"
+
+    row = [
+        "Per-question token reduction",
+        f"`{stats['source']}`",
+        str(stats["n"]),
+        _fmt(stats["median_percent"]),
+        _fmt(stats["min_percent"]),
+        _fmt(stats["max_percent"]),
+    ]
+    return _md_table(headers, [row])
 
 
 def generate_full_report(results_dir: str | Path) -> str:

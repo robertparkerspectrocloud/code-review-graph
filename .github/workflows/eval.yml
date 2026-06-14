@@ -51,7 +51,11 @@ jobs:
         if: always()
         run: |
           python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
-          from code_review_graph.eval.reporter import generate_full_report
+          from code_review_graph.eval.reporter import (
+              generate_full_report,
+              median_token_reduction,
+              median_token_reduction_table,
+          )
 
           print("# Weekly eval (report-only)")
           print()
@@ -60,6 +64,29 @@ jobs:
               "Regressions are reported here and in the CSV artifact but do "
               "not fail CI."
           )
+          print()
+
+          # Headline: median per-question token reduction from this run.
+          print("## Headline: median per-question token reduction")
+          print()
+          stats = median_token_reduction("evaluate/results")
+          if stats["median_percent"] is not None:
+              print(
+                  f"**{stats['median_percent']}%** median reduction over "
+                  f"{stats['n']} questions "
+                  f"(source: `{stats['source']}`). This is the median of "
+                  "per-question `(1 - graph_tokens / baseline_tokens) * 100`."
+              )
+          else:
+              print(
+                  "No usable rows this run (clone or measurement failures) — "
+                  "see the CSV artifact for details."
+              )
+          print()
+          print(median_token_reduction_table("evaluate/results"))
+          print()
+
+          print("## Full report")
           print()
           print(generate_full_report("evaluate/results"))
           PY

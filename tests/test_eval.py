@@ -12,6 +12,8 @@ from code_review_graph.eval.reporter import (
     generate_full_report,
     generate_markdown_report,
     generate_readme_tables,
+    median_token_reduction,
+    median_token_reduction_table,
 )
 
 try:
@@ -213,6 +215,106 @@ def test_generate_readme_tables():
         assert "### Token Efficiency" in tables
         assert "myrepo" in tables
         assert "1000" in tables
+
+
+def _write_agent_baseline_csv(results_dir: Path, rows: list[dict]) -> None:
+    path = results_dir / "test_agent_baseline_2026-01-01.csv"
+    fieldnames = [
+        "repo", "question", "terms", "files_matched", "top_files",
+        "baseline_tokens", "graph_tokens", "baseline_to_graph_ratio",
+        "status", "error",
+    ]
+    with open(path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        for r in rows:
+            w.writerow({k: r.get(k, "") for k in fieldnames})
+
+
+def test_median_token_reduction_from_agent_baseline():
+    """Median reduction is computed per-question from agent_baseline rows."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        results_dir = Path(tmpdir)
+        # Three OK rows: reductions 90%, 80%, 50% -> median 80%.
+        _write_agent_baseline_csv(results_dir, [
+            {"repo": "r", "question": "q1", "baseline_tokens": "1000",
+             "graph_tokens": "100", "status": "ok"},
+            {"repo": "r", "question": "q2", "baseline_tokens": "1000",
+             "graph_tokens": "200", "status": "ok"},
+            {"repo": "r", "question": "q3", "baseline_tokens": "1000",
+             "graph_tokens": "500", "status": "ok"},
+        ])
+        stats = median_token_reduction(results_dir)
+        assert stats["source"] == "agent_baseline"
+        assert stats["n"] == 3
+        assert stats["median_percent"] == 80.0
+        assert stats["max_percent"] == 90.0
+        assert stats["min_percent"] == 50.0
+
+
+def test_median_token_reduction_excludes_failed_rows():
+    """Rows with status != ok must not contribute to the median."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        results_dir = Path(tmpdir)
+        _write_agent_baseline_csv(results_dir, [
+            {"repo": "r", "question": "q1", "baseline_tokens": "1000",
+             "graph_tokens": "100", "status": "ok"},
+            {"repo": "r", "question": "q2", "baseline_tokens": "1000",
+             "graph_tokens": "0", "status": "no_graph_results"},
+            {"repo": "r", "question": "q3", "baseline_tokens": "0",
+             "graph_tokens": "0", "status": "error"},
+        ])
+        stats = median_token_reduction(results_dir)
+        assert stats["n"] == 1
+        assert stats["median_percent"] == 90.0
+
+
+def test_median_token_reduction_falls_back_to_token_efficiency():
+    """With no agent_baseline rows, fall back to token_efficiency."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        results_dir = Path(tmpdir)
+        te_path = results_dir / "test_token_efficiency_2026-01-01.csv"
+        with open(te_path, "w", newline="") as f:
+            w = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "repo", "commit", "description", "changed_files",
+                    "naive_tokens", "standard_tokens", "graph_tokens",
+                    "naive_to_graph_ratio", "standard_to_graph_ratio",
+                    "status", "error",
+                ],
+            )
+            w.writeheader()
+            w.writerow({
+                "repo": "r", "commit": "abc", "naive_tokens": "1000",
+                "graph_tokens": "250", "status": "ok",
+            })
+        stats = median_token_reduction(results_dir)
+        assert stats["source"] == "token_efficiency"
+        assert stats["median_percent"] == 75.0
+
+
+def test_median_token_reduction_empty_dir_is_honest():
+    """Empty/failed runs report n/a rather than fabricating a number."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        stats = median_token_reduction(Path(tmpdir))
+        assert stats["n"] == 0
+        assert stats["median_percent"] is None
+        table = median_token_reduction_table(Path(tmpdir))
+        assert "n/a" in table
+        assert "Per-question token reduction" in table
+
+
+def test_median_token_reduction_table_renders_percent():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        results_dir = Path(tmpdir)
+        _write_agent_baseline_csv(results_dir, [
+            {"repo": "r", "question": "q1", "baseline_tokens": "1000",
+             "graph_tokens": "100", "status": "ok"},
+        ])
+        table = median_token_reduction_table(results_dir)
+        assert "90.0%" in table
+        assert "`agent_baseline`" in table
 
 
 def test_generate_full_report():
