@@ -112,18 +112,30 @@ each project's public documentation (check upstream docs for current behavior):
 
 | Tool | Approach | Persistence | External deps | Review focus |
 |---|---|---|---|---|
-| **code-review-graph** | Tree-sitter AST → structural graph (calls, imports, inheritance, tests) over MCP + CLI | SQLite in `.code-review-graph/`, incremental updates | None for the core; embeddings optional | Yes — blast radius, risk-scored change analysis, test-gap detection |
+| **code-review-graph** | Tree-sitter AST → structural graph (calls, imports, inheritance, tests) over MCP + CLI | SQLite in `.code-review-graph/`, incremental updates | None for the core; embeddings optional | Yes — risk-scored change review, execution-flow criticality, impact radius, a PR-review GitHub Action, dead-code, wiki, and hybrid keyword+vector search — locally and free |
 | **Serena** | LSP-backed symbol retrieval and editing tools over MCP | Language-server state plus per-project memories | A language server per language | General coding-agent toolkit, not review-specific |
-| **codegraph** | AST/call-graph indexing over MCP (several projects share this name; details vary by implementation) | Varies by implementation | Varies by implementation | Generally retrieval-focused |
+| **codegraph** | AST/call-graph indexing over MCP (several projects share this name; details vary by implementation) | Varies by implementation | Varies by implementation | Navigation/retrieval-focused — some popular graph tools in this space are keyword/FTS-only today and position deeper PR-review intelligence as a forthcoming hosted/commercial product |
 | **claude-context** | Chunk + embed semantic code search over MCP | Vector index in a vector database | Embedding provider + vector DB (cloud or self-hosted) | Search-focused, not review-specific |
 | **repomix** | Packs the whole repo into one AI-friendly file | None — regenerated per run | Node.js | One-shot context packing; no structural queries |
 
-Rough guidance: if you want symbol-precise *editing* tools, Serena's LSP approach is
-a better fit. If you want semantic *search* and are happy running a vector store,
-claude-context covers that. If your repo is small enough to paste wholesale into a
-large context window, repomix is the simplest thing that works. CRG's niche is the
-persistent structural graph for **review**: impact analysis, risk scoring, and
-test-coverage tracing with no external services.
+**The wedge, in one line:** CRG focuses on *review*; retrieval tools focus on
+*navigation*. Both are useful, often together.
+
+Rough guidance — pick by the job in front of you:
+
+- **You want symbol-precise *editing* tools.** Serena's LSP approach is a better fit.
+- **You want semantic *search* and are happy running a vector store.** claude-context
+  covers that.
+- **Your repo fits wholesale into a large context window.** repomix is the simplest
+  thing that works.
+- **You want navigation/retrieval over a graph.** Several adjacent graph tools do this
+  well; note that some popular ones are keyword/FTS-only today and gate richer
+  PR-review intelligence behind a forthcoming hosted/commercial product.
+- **You want review now, locally, for free.** That is CRG's niche: a persistent
+  structural graph that ships risk-scored change review, execution-flow criticality,
+  impact radius, a PR-review GitHub Action, dead-code detection, a generated wiki, and
+  hybrid keyword+vector search — with no external services, no waitlist, and no paid
+  tier to unlock the review features.
 
 ## When should I not use it?
 
