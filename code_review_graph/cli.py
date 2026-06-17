@@ -54,6 +54,9 @@ _PLATFORM_CHOICES = [
 ]
 
 
+_DISTRIBUTION_NAMES = ("sc-code-review-graph", "code-review-graph")
+
+
 def _get_version() -> str:
     """Get the installed package version.
 
@@ -63,12 +66,13 @@ def _get_version() -> str:
     on filesystems where iCloud / OneDrive can leave orphan dist-info dirs
     behind that confuse importlib.metadata's lookup.
     """
-    try:
-        v = pkg_version("code-review-graph")
-        if v:
-            return v
-    except PackageNotFoundError as exc:
-        logger.debug("Package metadata unavailable: %s", exc)
+    for dist_name in _DISTRIBUTION_NAMES:
+        try:
+            v = pkg_version(dist_name)
+            if v:
+                return v
+        except PackageNotFoundError as exc:
+            logger.debug("Package metadata unavailable for %s: %s", dist_name, exc)
     # Fallback: read __version__ directly from the package.
     try:
         from . import __version__ as fallback_version
