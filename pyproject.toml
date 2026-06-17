@@ -39,11 +39,11 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/spectrocloud-labs/sc-code-review-graph"
-Repository = "https://github.com/spectrocloud-labs/sc-code-review-graph"
+Homepage = "https://github.com/robertparkerspectrocloud/code-review-graph"
+Repository = "https://github.com/robertparkerspectrocloud/code-review-graph"
 Documentation = "https://github.com/tirth8205/code-review-graph/blob/main/docs/INDEX.md"
-Changelog = "https://github.com/spectrocloud-labs/sc-code-review-graph/blob/main/CHANGELOG.md"
-Issues = "https://github.com/spectrocloud-labs/sc-code-review-graph/issues"
+Changelog = "https://github.com/robertparkerspectrocloud/code-review-graph/blob/main/CHANGELOG.md"
+Issues = "https://github.com/robertparkerspectrocloud/code-review-graph/issues"
 
 [project.scripts]
 code-review-graph = "code_review_graph.cli:main"

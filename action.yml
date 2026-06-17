@@ -42,11 +42,9 @@ runs:
 
     - name: Install sc-code-review-graph
       shell: bash
-      env:
-        REF: ${{ github.action_ref }}
       run: |
         python -m pip install --quiet \
-          "git+https://github.com/${{ github.repository_owner }}/sc-code-review-graph.git@${REF}"
+          "git+https://github.com/${GITHUB_ACTION_REPOSITORY}.git@${GITHUB_ACTION_REF}"
 
     # Cache the SQLite knowledge graph between runs. The "schema9" segment
     # tracks LATEST_VERSION in code_review_graph/migrations.py — bump it when
