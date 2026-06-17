@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sc-code-review-graph"
-version = "2.4.0.post1"
+version = "2.4.0.pre4"
 description = "SpectroCloud fork of code-review-graph with TESTED_BY direction fix (#515)"
 readme = {file = "README.md", content-type = "text/markdown"}
 license = "MIT"
